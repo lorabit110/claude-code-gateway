@@ -11,7 +11,7 @@ class Config:
     lark_app_id: str = field(default_factory=lambda: os.environ["LARK_APP_ID"])
     lark_app_secret: str = field(default_factory=lambda: os.environ["LARK_APP_SECRET"])
     claude_model: str = field(
-        default_factory=lambda: os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+        default_factory=lambda: os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
     )
     claude_max_turns: int = field(
         default_factory=lambda: int(os.getenv("CLAUDE_MAX_TURNS", "10"))

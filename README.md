@@ -68,7 +68,7 @@ LARK_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-sonnet-4-5-20250929` | Claude model to use |
+| `CLAUDE_MODEL` | `claude-opus-4-6` | Claude model to use |
 | `CLAUDE_MAX_TURNS` | `10` | Max agentic turns per invocation |
 | `CLAUDE_TIMEOUT` | `120` | Subprocess timeout in seconds |
 | `LARK_DOMAIN` | `https://open.larksuite.com` | Use `https://open.feishu.cn` for Feishu |
