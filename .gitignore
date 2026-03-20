@@ -1,0 +1,11 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Generated at runtime
+.mcp_config.json
