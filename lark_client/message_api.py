@@ -14,8 +14,11 @@ from lark_oapi.api.im.v1 import (
     CreateMessageRequestBody,
     DeleteMessageReactionRequest,
     Emoji,
+    GetMessageResourceRequest,
     ListMessageRequest,
     ListMessageResponse,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
     ReplyMessageResponse,
@@ -115,6 +118,75 @@ def reply_message(
             response.code,
             response.msg,
             response.get_log_id(),
+        )
+        return False
+    return True
+
+
+def reply_message_with_id(
+    client: lark.Client,
+    message_id: str,
+    msg_type: str,
+    content: str,
+) -> str | None:
+    """Reply to a message and return the new message's ID.
+
+    Returns:
+        The reply message_id if successful, None otherwise.
+    """
+    request = (
+        ReplyMessageRequest.builder()
+        .message_id(message_id)
+        .request_body(
+            ReplyMessageRequestBody.builder()
+            .msg_type(msg_type)
+            .content(content)
+            .build()
+        )
+        .build()
+    )
+    response: ReplyMessageResponse = client.im.v1.message.reply(request)
+    if not response.success():
+        logger.error(
+            "reply_message_with_id failed: code=%s, msg=%s, log_id=%s",
+            response.code,
+            response.msg,
+            response.get_log_id(),
+        )
+        return None
+    return response.data.message_id
+
+
+def update_message(
+    client: lark.Client,
+    message_id: str,
+    content: str,
+) -> bool:
+    """Update an interactive card message's content.
+
+    Args:
+        message_id: the message to update
+        content: JSON string of the new card content
+
+    Returns:
+        True if successful.
+    """
+    request = (
+        PatchMessageRequest.builder()
+        .message_id(message_id)
+        .request_body(
+            PatchMessageRequestBody.builder()
+            .content(content)
+            .build()
+        )
+        .build()
+    )
+    response = client.im.v1.message.patch(request)
+    if not response.success():
+        logger.warning(
+            "update_message failed: code=%s, msg=%s",
+            response.code,
+            response.msg,
         )
         return False
     return True
@@ -258,6 +330,46 @@ def upload_file(client: lark.Client, file_path: str) -> str | None:
         )
         return None
     return response.data.file_key
+
+
+def download_message_resource(
+    client: lark.Client,
+    message_id: str,
+    file_key: str,
+    resource_type: str,
+    save_path: str,
+) -> bool:
+    """Download a file or image resource from a message.
+
+    Args:
+        message_id: the message containing the resource
+        file_key: the image_key or file_key
+        resource_type: "image" or "file"
+        save_path: local path to save the downloaded file
+
+    Returns:
+        True if successful.
+    """
+    request = (
+        GetMessageResourceRequest.builder()
+        .message_id(message_id)
+        .file_key(file_key)
+        .type(resource_type)
+        .build()
+    )
+    response = client.im.v1.message_resource.get(request)
+    if not response.success():
+        logger.error(
+            "download_message_resource failed: code=%s, msg=%s, log_id=%s",
+            response.code,
+            response.msg,
+            response.get_log_id(),
+        )
+        return False
+
+    with open(save_path, "wb") as f:
+        f.write(response.file.read())
+    return True
 
 
 def send_chat_message(

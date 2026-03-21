@@ -7,6 +7,7 @@ def build_prompt(
     sender_name: str,
     chat_id: str,
     root_id: str | None = None,
+    message_id: str | None = None,
 ) -> str:
     """Build a prompt for Claude Code with pre-fetched conversation context.
 
@@ -46,11 +47,15 @@ def build_prompt(
     # Add context IDs for MCP tools
     parts.append("## Lark context")
     parts.append(f"Chat ID: {chat_id}")
+    if message_id:
+        parts.append(f"Message ID: {message_id}")
     if root_id:
         parts.append(f"Thread root message ID: {root_id}")
     parts.append(
         "If you need more conversation context, use the lark_read_thread or "
-        "lark_read_chat_history MCP tools with the chat_id above."
+        "lark_read_chat_history MCP tools with the chat_id above. "
+        "To download images or files from messages, use lark_download_resource "
+        "with the message_id, file_key, resource_type, and a save_path."
     )
 
     return "\n".join(parts)

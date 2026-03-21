@@ -89,33 +89,44 @@ Starting WebSocket connection...
 ## Usage
 
 - **In a group chat** — @mention the bot followed by your question
-- **File generation** — ask the bot to write a script, generate an image, etc. It will send the file as an attachment in the chat alongside its text reply
+- **In a DM** — message the bot directly (no @mention needed)
+- **Images and files** — send an image or file to the bot and it will view and analyze it
+- **File generation** — ask the bot to write a script, generate an image, etc. It will send the file as an attachment in the chat
+- **`/new`** — reset the conversation session and start fresh
+- **`/stop`** — interrupt a running request
 
 ## How It Works
 
 1. The bot receives messages via Lark's WebSocket event stream
-2. On @mention, it builds a prompt with recent conversation context
-3. It invokes `claude -p` as a subprocess with MCP tools that let Claude read more chat history if needed
-4. Claude's text response is sent as a reply; any files Claude wrote to its temporary working directory are uploaded and sent to the chat
-5. Each chat maintains a persistent Claude session for multi-turn conversations
+2. On @mention (or DM), it builds a prompt with recent conversation context
+3. It invokes `claude -p --output-format stream-json` as a subprocess with MCP tools
+4. A live-updating card shows progress (tool usage and intermediate text) as Claude works
+5. When Claude finishes, the card is replaced with the final response
+6. Any files Claude generated in the workspace are uploaded and sent to the chat
+7. Each chat maintains a persistent Claude session (stored on disk) for multi-turn conversations
+
+### System Prompt
+
+The system prompt is loaded from `system_prompt.txt` at runtime — edit it without changing code. Each chat can also have a `WORKSPACE.md` in its workspace directory (`workspaces/<chat_id>/`) that is appended to the system prompt automatically. Claude can create and update this file to persist notes across sessions.
 
 ## Project Structure
 
 ```
 main.py                        Entry point
 config.py                      Configuration from environment variables
+system_prompt.txt              System prompt (editable at runtime)
 bot/
-  event_handler.py             WebSocket event handling and message dispatch
-  message_formatter.py         Response formatting (text / interactive card)
+  event_handler.py             WebSocket event handling, streaming progress, bot commands
+  message_formatter.py         Response formatting as interactive markdown cards
   message_parser.py            Lark message parsing and @mention stripping
 claude_integration/
-  invoker.py                   Claude Code CLI subprocess management
+  invoker.py                   Claude Code CLI subprocess with streaming and session management
   prompt_builder.py            Prompt construction with conversation context
 lark_client/
   client.py                    Lark API client factory
-  message_api.py               Message, reaction, file, and image API helpers
+  message_api.py               Message send/reply/update, reactions, file/image upload/download
 mcp_tools/
-  lark_server.py               MCP server exposing Lark read tools to Claude
+  lark_server.py               MCP server exposing Lark read and download tools to Claude
 ```
 
 ## Troubleshooting
@@ -127,3 +138,4 @@ mcp_tools/
 | File uploads fail | Add the `im:resource` permission and re-publish the app |
 | `Get bot info failed` | Check `LARK_APP_ID` and `LARK_APP_SECRET` in `.env` |
 | Timeout errors | Increase `CLAUDE_TIMEOUT` for complex queries |
+| Session lost after restart | Sessions are now persisted in `workspaces/<chat_id>/session.json` |

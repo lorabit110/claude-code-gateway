@@ -50,6 +50,7 @@ def _format_messages(items: list) -> str:
     for msg in items:
         sender_id = msg.sender.id if msg.sender else "unknown"
         msg_type = msg.msg_type or "unknown"
+        msg_id = msg.message_id or ""
         content = ""
         if msg.body and msg.body.content:
             try:
@@ -58,6 +59,13 @@ def _format_messages(items: list) -> str:
                     content = content_data.get("text", "")
                 elif msg_type in ("post", "rich_text"):
                     content = _extract_post_text(content_data)
+                elif msg_type == "image":
+                    image_key = content_data.get("image_key", "")
+                    content = f"[image: image_key={image_key}]"
+                elif msg_type == "file":
+                    file_key = content_data.get("file_key", "")
+                    file_name = content_data.get("file_name", "")
+                    content = f"[file: file_key={file_key}, name={file_name}]"
                 else:
                     content = f"[{msg_type}]"
             except (json.JSONDecodeError, TypeError):
@@ -72,7 +80,7 @@ def _format_messages(items: list) -> str:
 
         create_time = msg.create_time or ""
         lines.append(
-            f"[{create_time}] {sender_id} ({msg_type}){mention_names}: {content}"
+            f"[{create_time}] {msg_id} {sender_id} ({msg_type}){mention_names}: {content}"
         )
 
     return "\n".join(lines)
@@ -199,6 +207,38 @@ def lark_get_message(message_id: str) -> str:
         f"  Type: {msg_type}\n"
         f"  Content: {content}"
     )
+
+
+@mcp.tool()
+def lark_download_resource(message_id: str, file_key: str, resource_type: str, save_path: str) -> str:
+    """Download an image or file attachment from a Lark message.
+
+    Use this to download images or files that were shared in the conversation.
+
+    Args:
+        message_id: The message ID containing the resource (starts with om_)
+        file_key: The image_key or file_key from the message content
+        resource_type: "image" or "file"
+        save_path: Local file path to save the downloaded resource
+    """
+    from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
+    client = _get_client()
+    request = (
+        GetMessageResourceRequest.builder()
+        .message_id(message_id)
+        .file_key(file_key)
+        .type(resource_type)
+        .build()
+    )
+    response = client.im.v1.message_resource.get(request)
+    if not response.success():
+        return f"Error downloading resource: code={response.code}, msg={response.msg}"
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    with open(save_path, "wb") as f:
+        f.write(response.file.read())
+    return f"Downloaded to {save_path}"
 
 
 if __name__ == "__main__":
