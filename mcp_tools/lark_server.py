@@ -241,5 +241,96 @@ def lark_download_resource(message_id: str, file_key: str, resource_type: str, s
     return f"Downloaded to {save_path}"
 
 
+@mcp.tool()
+def lark_send_file(chat_id: str, file_path: str) -> str:
+    """Send a file to a Lark chat.
+
+    Use this to share files you've created with the user. Only send files
+    that the user has explicitly requested or that are final outputs.
+
+    Args:
+        chat_id: The chat_id to send the file to (starts with oc_)
+        file_path: Local file path to upload and send
+    """
+    from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
+        CreateImageRequest,
+        CreateImageRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
+    )
+
+    client = _get_client()
+
+    ext = os.path.splitext(file_path)[1].lower()
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+    if ext in image_exts:
+        # Upload as image
+        with open(file_path, "rb") as f:
+            body = (
+                CreateImageRequestBody.builder()
+                .image_type("message")
+                .image(f)
+                .build()
+            )
+            request = CreateImageRequest.builder().request_body(body).build()
+            response = client.im.v1.image.create(request)
+
+        if not response.success():
+            return f"Error uploading image: code={response.code}, msg={response.msg}"
+
+        image_key = response.data.image_key
+        content = json.dumps({"image_key": image_key})
+        msg_type = "image"
+    else:
+        # Upload as file
+        ext_to_type = {
+            ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
+            ".xls": "xls", ".xlsx": "xls", ".ppt": "ppt",
+            ".pptx": "ppt", ".mp4": "mp4", ".opus": "opus",
+        }
+        file_type = ext_to_type.get(ext, "stream")
+        file_name = os.path.basename(file_path)
+
+        with open(file_path, "rb") as f:
+            body = (
+                CreateFileRequestBody.builder()
+                .file_type(file_type)
+                .file_name(file_name)
+                .file(f)
+                .build()
+            )
+            request = CreateFileRequest.builder().request_body(body).build()
+            response = client.im.v1.file.create(request)
+
+        if not response.success():
+            return f"Error uploading file: code={response.code}, msg={response.msg}"
+
+        file_key = response.data.file_key
+        content = json.dumps({"file_key": file_key})
+        msg_type = "file"
+
+    # Send message
+    request = (
+        CreateMessageRequest.builder()
+        .receive_id_type("chat_id")
+        .request_body(
+            CreateMessageRequestBody.builder()
+            .receive_id(chat_id)
+            .msg_type(msg_type)
+            .content(content)
+            .build()
+        )
+        .build()
+    )
+    response = client.im.v1.message.create(request)
+    if not response.success():
+        return f"Error sending message: code={response.code}, msg={response.msg}"
+
+    return f"Sent {os.path.basename(file_path)} to chat"
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

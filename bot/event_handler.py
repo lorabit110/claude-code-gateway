@@ -14,17 +14,13 @@ from claude_integration.invoker import invoke_claude_streaming, stop_claude, _ge
 from claude_integration.prompt_builder import build_prompt
 from config import Config
 from lark_client.message_api import (
-    IMAGE_EXTENSIONS,
     add_reaction,
     download_message_resource,
     list_messages,
     remove_reaction,
     reply_message,
     reply_message_with_id,
-    send_chat_message,
     update_message,
-    upload_file,
-    upload_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,6 +199,9 @@ def create_event_handler(
             user_text[:100],
         )
 
+        # Stop any existing request for this chat before starting a new one
+        stop_claude(chat_id)
+
         # Process in background thread to avoid blocking the event handler
         thread = threading.Thread(
             target=_process_message,
@@ -311,9 +310,7 @@ def _process_message(
         # Look up existing session for this chat
         session_id = sessions.get(chat_id)
 
-        # Snapshot existing files before invoking Claude
-        pre_work_dir = _get_workspace(chat_id)
-        existing_files = _snapshot_files(pre_work_dir)
+        # Note: file sending is handled by the agent via MCP tools
 
         # Create initial progress message
         reply_id = reply_message_with_id(
@@ -359,8 +356,6 @@ def _process_message(
                     msg_type, content = format_response(result_text)
                     reply_message(client, message_id, msg_type, content)
 
-                # Send newly created files
-                _send_generated_files(client, chat_id, work_dir, existing_files)
 
             elif etype == "interrupted":
                 if reply_id:
@@ -396,58 +391,3 @@ def _process_message(
             remove_reaction(client, message_id, reaction_id)
 
 
-def _snapshot_files(work_dir: str) -> set[str]:
-    """Return the set of all file paths currently in work_dir."""
-    files = set()
-    if not work_dir or not os.path.isdir(work_dir):
-        return files
-    for root, _dirs, filenames in os.walk(work_dir):
-        for name in filenames:
-            files.add(os.path.join(root, name))
-    return files
-
-
-def _send_generated_files(
-    client: lark.Client, chat_id: str, work_dir: str, existing_files: set[str]
-) -> None:
-    """Send only newly created files in work_dir to the chat."""
-    if not work_dir or not os.path.isdir(work_dir):
-        return
-
-    # Files to exclude from sending (internal bot files, input downloads)
-    _EXCLUDED = {"session.json", "WORKSPACE.md"}
-
-    current_files = _snapshot_files(work_dir)
-    files = sorted(
-        f for f in (current_files - existing_files)
-        if os.path.basename(f) not in _EXCLUDED
-        and not os.path.basename(f).startswith("input_")
-    )
-
-    if not files:
-        return
-
-    logger.info("Found %d new file(s) in %s", len(files), work_dir)
-
-    for file_path in files:
-        ext = os.path.splitext(file_path)[1].lower()
-        try:
-            if ext in IMAGE_EXTENSIONS:
-                image_key = upload_image(client, file_path)
-                if image_key:
-                    content = json.dumps({"image_key": image_key})
-                    send_chat_message(client, chat_id, "image", content)
-                    logger.info("Sent image: %s", os.path.basename(file_path))
-            else:
-                file_key = upload_file(client, file_path)
-                if file_key:
-                    file_name = os.path.basename(file_path)
-                    content = json.dumps({"file_key": file_key})
-                    send_chat_message(client, chat_id, "file", content)
-                    logger.info("Sent file: %s", file_name)
-        except Exception:
-            logger.error(
-                "Failed to send generated file: %s",
-                file_path,
-                exc_info=True,
-            )
