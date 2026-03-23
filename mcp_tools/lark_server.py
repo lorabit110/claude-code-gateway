@@ -50,6 +50,7 @@ def _format_messages(items: list) -> str:
     for msg in items:
         sender_id = msg.sender.id if msg.sender else "unknown"
         msg_type = msg.msg_type or "unknown"
+        msg_id = msg.message_id or ""
         content = ""
         if msg.body and msg.body.content:
             try:
@@ -58,6 +59,13 @@ def _format_messages(items: list) -> str:
                     content = content_data.get("text", "")
                 elif msg_type in ("post", "rich_text"):
                     content = _extract_post_text(content_data)
+                elif msg_type == "image":
+                    image_key = content_data.get("image_key", "")
+                    content = f"[image: image_key={image_key}]"
+                elif msg_type == "file":
+                    file_key = content_data.get("file_key", "")
+                    file_name = content_data.get("file_name", "")
+                    content = f"[file: file_key={file_key}, name={file_name}]"
                 else:
                     content = f"[{msg_type}]"
             except (json.JSONDecodeError, TypeError):
@@ -72,7 +80,7 @@ def _format_messages(items: list) -> str:
 
         create_time = msg.create_time or ""
         lines.append(
-            f"[{create_time}] {sender_id} ({msg_type}){mention_names}: {content}"
+            f"[{create_time}] {msg_id} {sender_id} ({msg_type}){mention_names}: {content}"
         )
 
     return "\n".join(lines)
@@ -199,6 +207,129 @@ def lark_get_message(message_id: str) -> str:
         f"  Type: {msg_type}\n"
         f"  Content: {content}"
     )
+
+
+@mcp.tool()
+def lark_download_resource(message_id: str, file_key: str, resource_type: str, save_path: str) -> str:
+    """Download an image or file attachment from a Lark message.
+
+    Use this to download images or files that were shared in the conversation.
+
+    Args:
+        message_id: The message ID containing the resource (starts with om_)
+        file_key: The image_key or file_key from the message content
+        resource_type: "image" or "file"
+        save_path: Local file path to save the downloaded resource
+    """
+    from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
+    client = _get_client()
+    request = (
+        GetMessageResourceRequest.builder()
+        .message_id(message_id)
+        .file_key(file_key)
+        .type(resource_type)
+        .build()
+    )
+    response = client.im.v1.message_resource.get(request)
+    if not response.success():
+        return f"Error downloading resource: code={response.code}, msg={response.msg}"
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    with open(save_path, "wb") as f:
+        f.write(response.file.read())
+    return f"Downloaded to {save_path}"
+
+
+@mcp.tool()
+def lark_send_file(chat_id: str, file_path: str) -> str:
+    """Send a file to a Lark chat.
+
+    Use this to share files you've created with the user. Only send files
+    that the user has explicitly requested or that are final outputs.
+
+    Args:
+        chat_id: The chat_id to send the file to (starts with oc_)
+        file_path: Local file path to upload and send
+    """
+    from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
+        CreateImageRequest,
+        CreateImageRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
+    )
+
+    client = _get_client()
+
+    ext = os.path.splitext(file_path)[1].lower()
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+    if ext in image_exts:
+        # Upload as image
+        with open(file_path, "rb") as f:
+            body = (
+                CreateImageRequestBody.builder()
+                .image_type("message")
+                .image(f)
+                .build()
+            )
+            request = CreateImageRequest.builder().request_body(body).build()
+            response = client.im.v1.image.create(request)
+
+        if not response.success():
+            return f"Error uploading image: code={response.code}, msg={response.msg}"
+
+        image_key = response.data.image_key
+        content = json.dumps({"image_key": image_key})
+        msg_type = "image"
+    else:
+        # Upload as file
+        ext_to_type = {
+            ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
+            ".xls": "xls", ".xlsx": "xls", ".ppt": "ppt",
+            ".pptx": "ppt", ".mp4": "mp4", ".opus": "opus",
+        }
+        file_type = ext_to_type.get(ext, "stream")
+        file_name = os.path.basename(file_path)
+
+        with open(file_path, "rb") as f:
+            body = (
+                CreateFileRequestBody.builder()
+                .file_type(file_type)
+                .file_name(file_name)
+                .file(f)
+                .build()
+            )
+            request = CreateFileRequest.builder().request_body(body).build()
+            response = client.im.v1.file.create(request)
+
+        if not response.success():
+            return f"Error uploading file: code={response.code}, msg={response.msg}"
+
+        file_key = response.data.file_key
+        content = json.dumps({"file_key": file_key})
+        msg_type = "file"
+
+    # Send message
+    request = (
+        CreateMessageRequest.builder()
+        .receive_id_type("chat_id")
+        .request_body(
+            CreateMessageRequestBody.builder()
+            .receive_id(chat_id)
+            .msg_type(msg_type)
+            .content(content)
+            .build()
+        )
+        .build()
+    )
+    response = client.im.v1.message.create(request)
+    if not response.success():
+        return f"Error sending message: code={response.code}, msg={response.msg}"
+
+    return f"Sent {os.path.basename(file_path)} to chat"
 
 
 if __name__ == "__main__":
